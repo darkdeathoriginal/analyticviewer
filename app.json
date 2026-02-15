@@ -20,7 +20,8 @@
       "expo-router"
     ],
     "updates": {
-      "url": "https://u.expo.dev/1ee40bf0-cd6e-492f-b43b-a79cdfaa72b3"
+      "url": "https://u.expo.dev/1ee40bf0-cd6e-492f-b43b-a79cdfaa72b3",
+      "channel": "production"
     },
     "runtimeVersion": "1.0.0",
     "experiments": {

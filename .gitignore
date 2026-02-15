@@ -9,3 +9,4 @@ android/app/build
 node_modules
 android/app/src/main/assets/index.android.bundle
 .kotlin
+dist

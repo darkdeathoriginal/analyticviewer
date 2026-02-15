@@ -52,7 +52,7 @@ export default function RootLayout() {
         <Stack.Screen 
           name="index" 
           options={{ 
-            title: 'My Apps',
+            title: 'My Web Apps',
             headerLargeTitle: true,
             headerLargeTitleStyle: {
               color: Colors.text,

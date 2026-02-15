@@ -7,3 +7,5 @@ expo-env.d.ts
 .expo
 android/app/build
 node_modules
+android/app/src/main/assets/index.android.bundle
+.kotlin

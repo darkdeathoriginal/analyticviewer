@@ -98,7 +98,7 @@ export default function ViewerScreen() {
         ref={ref => webViewRefs.current[tab.id] = ref}
         source={{ uri: tab.url, headers: { 'Cache-Control': 'no-cache' } }}
         style={styles.webView}
-        onLoadStart={() => updateLoadingState(tab.id, true)}
+        onLoadStart={() => {}}
         onLoadEnd={() => {
           updateLoadingState(tab.id, false);
           if (isActive) setRefreshing(false);

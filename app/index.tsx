@@ -1,53 +1,80 @@
-import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { Globe, Plus, Trash2 } from 'lucide-react-native';
-import React, { useCallback, useState } from 'react';
-import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import AddAppModal from '../components/AddAppModal';
-import { Colors, Layout } from '../constants/theme';
-import { deleteApp, getApps, saveApp, SavedApp } from '../utils/storage';
+import { LinearGradient } from "expo-linear-gradient";
+import { useFocusEffect, useRouter } from "expo-router";
+import { Globe, Plus, Trash2 } from "lucide-react-native";
+import React, { useCallback, useState } from "react";
+import {
+  FlatList,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import AddAppModal from "../components/AddAppModal";
+import { Colors, Layout } from "../constants/theme";
+import { resolveFavicon } from "../utils/favicon";
+import { deleteApp, getApps, saveApp, SavedApp } from "../utils/storage";
 
-const AppItem = React.memo(({ item, onPress, onDelete }: { item: SavedApp, onPress: (app: SavedApp) => void, onDelete: (id: string) => void }) => {
-  const [imageError, setImageError] = useState(false);
+const AppItem = React.memo(
+  ({
+    item,
+    onPress,
+    onDelete,
+  }: {
+    item: SavedApp;
+    onPress: (app: SavedApp) => void;
+    onDelete: (id: string) => void;
+  }) => {
+    const [imageError, setImageError] = useState(false);
 
-  return (
-    <TouchableOpacity 
-      activeOpacity={0.7}
-      onPress={() => onPress(item)}
-      style={styles.cardContainer}
-    >
-      <LinearGradient
-        colors={[Colors.surface, Colors.surfaceLight]}
-        style={styles.card}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+    return (
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => onPress(item)}
+        style={styles.cardContainer}
       >
-        <View style={styles.cardIcon}>
-          {imageError ? (
-            <Globe color={Colors.primary} size={24} />
-          ) : (
-            <Image 
-              source={{ uri: `https://www.google.com/s2/favicons?sz=64&domain_url=${item.url}` }}
-              style={styles.favicon}
-              onError={() => setImageError(true)}
-            />
-          )}
-        </View>
-        <View style={styles.cardContent}>
-          <Text style={styles.appName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.appUrl} numberOfLines={1}>{item.url}</Text>
-        </View>
-        <TouchableOpacity 
-          style={styles.deleteButton} 
-          onPress={() => onDelete(item.id)}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        <LinearGradient
+          colors={[Colors.surface, Colors.surfaceLight]}
+          style={styles.card}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
         >
-          <Trash2 color={Colors.danger} size={18} />
-        </TouchableOpacity>
-      </LinearGradient>
-    </TouchableOpacity>
-  );
-});
+          <View style={styles.cardIcon}>
+            {imageError ? (
+              <Globe color={Colors.primary} size={24} />
+            ) : (
+              <Image
+                source={{
+                  uri:
+                    item.favicon ??
+                    `https://www.google.com/s2/favicons?sz=64&domain=${new URL(item.url).hostname}`,
+                }}
+                style={styles.favicon}
+                onError={() => setImageError(true)}
+              />
+            )}
+          </View>
+          <View style={styles.cardContent}>
+            <Text style={styles.appName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <Text style={styles.appUrl} numberOfLines={1}>
+              {item.url}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => onDelete(item.id)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Trash2 color={Colors.danger} size={18} />
+          </TouchableOpacity>
+        </LinearGradient>
+      </TouchableOpacity>
+    );
+  },
+);
 
 export default function HomeScreen() {
   const [apps, setApps] = useState<SavedApp[]>([]);
@@ -67,7 +94,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       loadApps();
-    }, [loadApps])
+    }, [loadApps]),
   );
 
   const onRefresh = async () => {
@@ -78,7 +105,9 @@ export default function HomeScreen() {
 
   const handleAddApp = async (name: string, url: string) => {
     try {
-      await saveApp({ name, url });
+      const favicon = await resolveFavicon(url);
+
+      await saveApp({ name, url, favicon });
       await loadApps();
     } catch (error) {
       console.error(error);
@@ -94,16 +123,22 @@ export default function HomeScreen() {
     }
   };
 
-  const openApp = useCallback((app: SavedApp) => {
-    router.push({
-      pathname: '/viewer',
-      params: { url: app.url, title: app.name, id: app.id },
-    });
-  }, [router]);
+  const openApp = useCallback(
+    (app: SavedApp) => {
+      router.push({
+        pathname: "/viewer",
+        params: { url: app.url, title: app.name, id: app.id },
+      });
+    },
+    [router],
+  );
 
-  const renderItem = useCallback(({ item }: { item: SavedApp }) => (
-    <AppItem item={item} onPress={openApp} onDelete={handleDeleteApp} />
-  ), [openApp, handleDeleteApp]);
+  const renderItem = useCallback(
+    ({ item }: { item: SavedApp }) => (
+      <AppItem item={item} onPress={openApp} onDelete={handleDeleteApp} />
+    ),
+    [openApp, handleDeleteApp],
+  );
 
   return (
     <View style={styles.container}>
@@ -113,23 +148,29 @@ export default function HomeScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.text} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.text}
+          />
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>No apps saved yet.</Text>
-            <Text style={styles.emptySubtext}>Tap the + button to add your first web app.</Text>
+            <Text style={styles.emptySubtext}>
+              Tap the + button to add your first web app.
+            </Text>
           </View>
         }
       />
 
-      <TouchableOpacity 
-        style={styles.fab} 
+      <TouchableOpacity
+        style={styles.fab}
         onPress={() => setModalVisible(true)}
         activeOpacity={0.8}
       >
         <LinearGradient
-          colors={[Colors.primary, '#60a5fa']}
+          colors={[Colors.primary, "#60a5fa"]}
           style={styles.fabGradient}
         >
           <Plus color="#fff" size={32} />
@@ -167,8 +208,8 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     padding: Layout.spacing.m,
     borderRadius: Layout.borderRadius.l,
     borderWidth: 1,
@@ -178,9 +219,9 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: Layout.spacing.m,
   },
   cardContent: {
@@ -188,21 +229,21 @@ const styles = StyleSheet.create({
   },
   appName: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     color: Colors.text,
     marginBottom: 4,
   },
   appUrl: {
     fontSize: 12,
     color: Colors.textSecondary,
-    textAlign: 'left',
+    textAlign: "left",
   },
   deleteButton: {
     padding: 8,
     opacity: 0.8,
   },
   fab: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 32,
     right: 32,
     borderRadius: 30,
@@ -219,25 +260,25 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: 100,
   },
   emptyText: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     color: Colors.text,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
     color: Colors.textSecondary,
-    textAlign: 'center',
+    textAlign: "center",
   },
   favicon: {
     width: 32,

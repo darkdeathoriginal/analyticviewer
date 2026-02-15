@@ -6,6 +6,8 @@ export interface SavedApp {
   url: string;
   icon?: string;
   createdAt: number;
+  favicon: string | null;
+
 }
 
 const STORAGE_KEY = '@analyticviewer_apps';

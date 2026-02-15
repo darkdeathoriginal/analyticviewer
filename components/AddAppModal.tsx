@@ -34,12 +34,12 @@ export default function AddAppModal({ visible, onClose, onSave }: AddAppModalPro
       visible={visible}
       onRequestClose={onClose}
     >
-      <View style={styles.centeredView}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.centeredView}
+      >
         <BlurView intensity={20} style={StyleSheet.absoluteFill} tint="dark" />
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalView}
-        >
+        <View style={styles.modalView}>
           <View style={styles.header}>
             <Text style={styles.modalTitle}>Add New App</Text>
             <TouchableOpacity onPress={onClose}>
@@ -76,8 +76,8 @@ export default function AddAppModal({ visible, onClose, onSave }: AddAppModalPro
             <Save color="#000" size={20} style={{ marginLeft: 8 }} />
           </TouchableOpacity>
 
-        </KeyboardAvoidingView>
-      </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

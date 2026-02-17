@@ -1,20 +1,32 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Globe, Plus, Trash2 } from "lucide-react-native";
-import React, { useCallback, useState } from "react";
+import { Globe, LayoutDashboard, Plus, Trash2 } from "lucide-react-native";
+import React, { useCallback, useRef, useState } from "react";
 import {
+  Animated,
   FlatList,
   Image,
+  LayoutAnimation,
+  Platform,
   RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
+  UIManager,
   View,
 } from "react-native";
 import AddAppModal from "../components/AddAppModal";
 import { Colors, Layout } from "../constants/theme";
 import { resolveFavicon } from "../utils/favicon";
 import { deleteApp, getApps, saveApp, SavedApp } from "../utils/storage";
+
+// Enable LayoutAnimation for Android
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const AppItem = React.memo(
   ({
@@ -27,51 +39,68 @@ const AppItem = React.memo(
     onDelete: (id: string) => void;
   }) => {
     const [imageError, setImageError] = useState(false);
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+
+    const handlePressIn = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 0.96,
+        useNativeDriver: true,
+      }).start();
+    };
+
+    const handlePressOut = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+      }).start();
+    };
 
     return (
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={() => onPress(item)}
-        style={styles.cardContainer}
-      >
-        <LinearGradient
-          colors={[Colors.surface, Colors.surfaceLight]}
-          style={styles.card}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => onPress(item)}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          style={styles.cardContainer}
         >
-          <View style={styles.cardIcon}>
-            {imageError ? (
-              <Globe color={Colors.primary} size={24} />
-            ) : (
-              <Image
-                source={{
-                  uri:
-                    item.favicon ??
-                    `https://www.google.com/s2/favicons?sz=64&domain=${new URL(item.url).hostname}`,
-                }}
-                style={styles.favicon}
-                onError={() => setImageError(true)}
-              />
-            )}
+          <View style={styles.card}>
+            <View style={styles.cardContentContainer}>
+              <View style={styles.cardIcon}>
+                {imageError ? (
+                  <Globe color={Colors.primary} size={24} />
+                ) : (
+                  <Image
+                    source={{
+                      uri:
+                        item.favicon ??
+                        `https://www.google.com/s2/favicons?sz=64&domain=${new URL(item.url).hostname}`,
+                    }}
+                    style={styles.favicon}
+                    onError={() => setImageError(true)}
+                  />
+                )}
+              </View>
+              <View style={styles.textContainer}>
+                <Text style={styles.appName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={styles.appUrl} numberOfLines={1}>
+                  {item.url}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => onDelete(item.id)}
+              hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+            >
+              <Trash2 color={Colors.textSecondary} size={20} />
+            </TouchableOpacity>
           </View>
-          <View style={styles.cardContent}>
-            <Text style={styles.appName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <Text style={styles.appUrl} numberOfLines={1}>
-              {item.url}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={() => onDelete(item.id)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Trash2 color={Colors.danger} size={18} />
-          </TouchableOpacity>
-        </LinearGradient>
-      </TouchableOpacity>
+        </TouchableOpacity>
+      </Animated.View>
     );
   },
 );
@@ -85,6 +114,7 @@ export default function HomeScreen() {
   const loadApps = useCallback(async () => {
     try {
       const storedApps = await getApps();
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setApps(storedApps);
     } catch (error) {
       console.error(error);
@@ -106,7 +136,6 @@ export default function HomeScreen() {
   const handleAddApp = async (name: string, url: string) => {
     try {
       const favicon = await resolveFavicon(url);
-
       await saveApp({ name, url, favicon });
       await loadApps();
     } catch (error) {
@@ -156,22 +185,27 @@ export default function HomeScreen() {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No apps saved yet.</Text>
+            <View style={styles.emptyIconContainer}>
+              <LayoutDashboard color={Colors.primary} size={48} />
+            </View>
+            <Text style={styles.emptyText}>Your Dashboard is Empty</Text>
             <Text style={styles.emptySubtext}>
-              Tap the + button to add your first web app.
+              Add your favorite web apps to get started.
             </Text>
           </View>
         }
       />
 
       <TouchableOpacity
-        style={styles.fab}
+        style={styles.fabContainer}
         onPress={() => setModalVisible(true)}
         activeOpacity={0.8}
       >
         <LinearGradient
           colors={[Colors.primary, "#60a5fa"]}
-          style={styles.fabGradient}
+          style={styles.fab}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
         >
           <Plus color="#fff" size={32} />
         </LinearGradient>
@@ -193,96 +227,122 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: Layout.spacing.m,
-    paddingBottom: 100, // Space for FAB
+    paddingBottom: 120, // Space for FAB
   },
   cardContainer: {
     marginBottom: Layout.spacing.m,
-    borderRadius: Layout.borderRadius.l,
+  },
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: Layout.spacing.m,
+    borderRadius: Layout.borderRadius.xl,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    // Subtle shadow
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 4,
     },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-    elevation: 8,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  card: {
+  cardContentContainer: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Layout.spacing.m,
-    borderRadius: Layout.borderRadius.l,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    flex: 1,
   },
   cardIcon: {
     width: 48,
     height: 48,
-    borderRadius: 12,
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    borderRadius: 14,
+    backgroundColor: "rgba(59, 130, 246, 0.15)", // Subtle primary tint
     justifyContent: "center",
     alignItems: "center",
     marginRight: Layout.spacing.m,
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.2)",
   },
-  cardContent: {
+  favicon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+  },
+  textContainer: {
     flex: 1,
+    paddingRight: Layout.spacing.s,
   },
   appName: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 17,
+    fontWeight: "600",
     color: Colors.text,
-    marginBottom: 4,
+    marginBottom: 2,
+    letterSpacing: 0.3,
   },
   appUrl: {
-    fontSize: 12,
+    fontSize: 13,
     color: Colors.textSecondary,
-    textAlign: "left",
   },
   deleteButton: {
-    padding: 8,
-    opacity: 0.8,
+    padding: 10,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 12,
   },
-  fab: {
+  fabContainer: {
     position: "absolute",
     bottom: 32,
-    right: 32,
-    borderRadius: 30,
+    right: 24,
     shadowColor: Colors.primary,
     shadowOffset: {
       width: 0,
       height: 8,
     },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 10,
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  fabGradient: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+  fab: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
   },
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 100,
+    marginTop: 120,
+    paddingHorizontal: 40,
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.surface,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
   },
   emptyText: {
     fontSize: 20,
     fontWeight: "bold",
     color: Colors.text,
     marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: Colors.textSecondary,
     textAlign: "center",
   },
-  favicon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+  emptySubtext: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 22,
   },
 });

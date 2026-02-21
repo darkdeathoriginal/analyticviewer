@@ -3,7 +3,7 @@ import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 import { Settings as SettingsIcon } from "lucide-react-native";
 import React, { useState } from "react";
-import { TouchableOpacity, View } from "react-native";
+import { Image, TouchableOpacity, View } from "react-native";
 import UpdateBanner from "../components/UpdateBanner";
 import { Colors } from "../constants/theme";
 import { useUpdateChecker } from "../hooks/useUpdateChecker";
@@ -40,6 +40,18 @@ export default function RootLayout() {
             title: "My Web Apps",
             headerLargeTitle: true,
             headerLargeTitleStyle: { color: Colors.text },
+            headerLeft: () => (
+              <Image
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                source={require("../assets/icon.png")}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  marginRight: 4,
+                }}
+              />
+            ),
             headerRight: () => (
               <Link href={"/settings" as any} asChild>
                 <TouchableOpacity>

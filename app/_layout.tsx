@@ -3,7 +3,7 @@ import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 import { Settings as SettingsIcon } from "lucide-react-native";
 import React, { useState } from "react";
-import { Image, TouchableOpacity, View } from "react-native";
+import { Image, Text, TouchableOpacity, View } from "react-native";
 import UpdateBanner from "../components/UpdateBanner";
 import { Colors } from "../constants/theme";
 import { useUpdateChecker } from "../hooks/useUpdateChecker";
@@ -37,20 +37,26 @@ export default function RootLayout() {
         <Stack.Screen
           name="index"
           options={{
-            title: "My Web Apps",
-            headerLargeTitle: true,
-            headerLargeTitleStyle: { color: Colors.text },
-            headerLeft: () => (
-              <Image
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
-                source={require("../assets/icon.png")}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
-                  marginRight: 4,
-                }}
-              />
+            headerLargeTitle: false,
+            headerTitle: () => (
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+              >
+                <Image
+                  // eslint-disable-next-line @typescript-eslint/no-require-imports
+                  source={require("../assets/icon.png")}
+                  style={{ width: 32, height: 32, borderRadius: 8 }}
+                />
+                <Text
+                  style={{
+                    color: Colors.text,
+                    fontSize: 18,
+                    fontWeight: "700",
+                  }}
+                >
+                  My Web Apps
+                </Text>
+              </View>
             ),
             headerRight: () => (
               <Link href={"/settings" as any} asChild>

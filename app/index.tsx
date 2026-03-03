@@ -15,10 +15,17 @@ import {
   UIManager,
   View,
 } from "react-native";
+import { WebView } from "react-native-webview";
 import AddAppModal from "../components/AddAppModal";
 import { Colors, Layout } from "../constants/theme";
 import { resolveFavicon } from "../utils/favicon";
-import { deleteApp, getApps, saveApp, SavedApp } from "../utils/storage";
+import {
+  deleteApp,
+  getApps,
+  saveApp,
+  SavedApp,
+  updateApp,
+} from "../utils/storage";
 
 // Enable LayoutAnimation for Android
 if (
@@ -69,6 +76,16 @@ const AppItem = React.memo(
               <View style={styles.cardIcon}>
                 {imageError ? (
                   <Globe color={Colors.primary} size={24} />
+                ) : item.favicon?.startsWith("data:") ? (
+                  // SVG / data URI — Image can't render these; use a tiny WebView
+                  <WebView
+                    source={{ uri: item.favicon }}
+                    style={styles.favicon}
+                    scrollEnabled={false}
+                    pointerEvents="none"
+                    androidLayerType="hardware"
+                    onError={() => setImageError(true)}
+                  />
                 ) : (
                   <Image
                     source={{
@@ -121,16 +138,45 @@ export default function HomeScreen() {
     }
   }, []);
 
+  /** Re-fetch favicons for all apps in the background, persisting any updates. */
+  const refreshFaviconsInBackground = useCallback(async () => {
+    try {
+      const storedApps = await getApps();
+      await Promise.all(
+        storedApps.map(async (app) => {
+          try {
+            const newFavicon = await resolveFavicon(app.url);
+            if (newFavicon && newFavicon !== app.favicon) {
+              await updateApp(app.id, { favicon: newFavicon });
+              // Reflect the update in local state immediately
+              setApps((prev) =>
+                prev.map((a) =>
+                  a.id === app.id ? { ...a, favicon: newFavicon } : a,
+                ),
+              );
+            }
+          } catch {
+            // Silently ignore per-app errors
+          }
+        }),
+      );
+    } catch (error) {
+      console.error("Background favicon refresh failed", error);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       loadApps();
-    }, [loadApps]),
+      refreshFaviconsInBackground(); // fire-and-forget
+    }, [loadApps, refreshFaviconsInBackground]),
   );
 
   const onRefresh = async () => {
     setRefreshing(true);
     await loadApps();
     setRefreshing(false);
+    refreshFaviconsInBackground(); // fire-and-forget after pull-to-refresh
   };
 
   const handleAddApp = async (name: string, url: string) => {

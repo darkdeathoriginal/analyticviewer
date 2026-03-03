@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export interface SavedApp {
   id: string;
@@ -7,22 +7,23 @@ export interface SavedApp {
   icon?: string;
   createdAt: number;
   favicon: string | null;
-
 }
 
-const STORAGE_KEY = '@analyticviewer_apps';
+const STORAGE_KEY = "@analyticviewer_apps";
 
 export const getApps = async (): Promise<SavedApp[]> => {
   try {
     const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
     return jsonValue != null ? JSON.parse(jsonValue) : [];
   } catch (e) {
-    console.error('Failed to fetch apps', e);
+    console.error("Failed to fetch apps", e);
     return [];
   }
 };
 
-export const saveApp = async (app: Omit<SavedApp, 'id' | 'createdAt'>): Promise<SavedApp> => {
+export const saveApp = async (
+  app: Omit<SavedApp, "id" | "createdAt">,
+): Promise<SavedApp> => {
   try {
     const existingApps = await getApps();
     const newApp: SavedApp = {
@@ -34,7 +35,23 @@ export const saveApp = async (app: Omit<SavedApp, 'id' | 'createdAt'>): Promise<
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedApps));
     return newApp;
   } catch (e) {
-    console.error('Failed to save app', e);
+    console.error("Failed to save app", e);
+    throw e;
+  }
+};
+
+export const updateApp = async (
+  id: string,
+  patch: Partial<Omit<SavedApp, "id" | "createdAt">>,
+): Promise<void> => {
+  try {
+    const existingApps = await getApps();
+    const updatedApps = existingApps.map((app) =>
+      app.id === id ? { ...app, ...patch } : app,
+    );
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedApps));
+  } catch (e) {
+    console.error("Failed to update app", e);
     throw e;
   }
 };
@@ -42,10 +59,10 @@ export const saveApp = async (app: Omit<SavedApp, 'id' | 'createdAt'>): Promise<
 export const deleteApp = async (id: string): Promise<void> => {
   try {
     const existingApps = await getApps();
-    const updatedApps = existingApps.filter(app => app.id !== id);
+    const updatedApps = existingApps.filter((app) => app.id !== id);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedApps));
   } catch (e) {
-    console.error('Failed to delete app', e);
+    console.error("Failed to delete app", e);
     throw e;
   }
 };

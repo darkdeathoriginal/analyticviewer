@@ -76,16 +76,36 @@ const AppItem = React.memo(
               <View style={styles.cardIcon}>
                 {imageError ? (
                   <Globe color={Colors.primary} size={24} />
-                ) : item.favicon?.startsWith("data:") ? (
-                  // SVG / data URI — Image can't render these; use a tiny WebView
-                  <WebView
-                    source={{ uri: item.favicon }}
-                    style={styles.favicon}
-                    scrollEnabled={false}
-                    pointerEvents="none"
-                    androidLayerType="hardware"
-                    onError={() => setImageError(true)}
-                  />
+                ) : item.favicon?.startsWith("data:image/svg+xml") ? (
+                  (() => {
+                    // Decode the SVG from the data URI (handles both encoded and raw)
+                    const raw = item.favicon!;
+                    const commaIdx = raw.indexOf(",");
+                    let svgContent = "";
+                    if (commaIdx !== -1) {
+                      const slice = raw.slice(commaIdx + 1);
+                      try {
+                        svgContent = decodeURIComponent(slice);
+                      } catch {
+                        svgContent = slice; // already raw / not encoded
+                      }
+                    }
+                    const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>*{margin:0;padding:0;background:transparent}html,body{width:100%;height:100%;display:flex;align-items:center;justify-content:center}svg{width:100%;height:100%}</style></head><body>${svgContent}</body></html>`;
+                    return (
+                      <WebView
+                        source={{ html }}
+                        style={[
+                          styles.favicon,
+                          { backgroundColor: "transparent" },
+                        ]}
+                        scrollEnabled={false}
+                        pointerEvents="none"
+                        androidLayerType="hardware"
+                        backgroundColor="transparent"
+                        onError={() => setImageError(true)}
+                      />
+                    );
+                  })()
                 ) : (
                   <Image
                     source={{

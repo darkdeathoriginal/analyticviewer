@@ -1,6 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
-import * as Updates from "expo-updates";
 import { useCallback, useEffect, useState } from "react";
+import { Alert, BackHandler } from "react-native";
 import { BUILD_INFO } from "../constants/buildInfo";
 import { getSettings } from "../utils/settings";
 
@@ -267,18 +267,23 @@ export function useUpdateChecker(autoCheckOnMount = true) {
         await saveBasicMeta();
       }
 
-      setStatus("Update downloaded! Restarting...");
       setDownloadProgress(100);
+      setIsDownloading(false);
+      setStatus("Update installed! Restart to apply.");
+      setIsAvailable(false);
 
-      // Short delay so user sees the message, then reload
-      setTimeout(async () => {
-        try {
-          await Updates.reloadAsync();
-        } catch {
-          // If expo-updates reload doesn't work, inform user to restart manually
-          setStatus("Update installed! Please restart the app.");
-        }
-      }, 1500);
+      // Prompt user to restart the app
+      Alert.alert(
+        "Update Installed",
+        "The update has been downloaded. Close and reopen the app to apply the changes.",
+        [
+          { text: "Later", style: "cancel" },
+          {
+            text: "Close App",
+            onPress: () => BackHandler.exitApp(),
+          },
+        ],
+      );
     } catch (err: any) {
       const errorMsg = err?.message ?? "Download failed";
       console.log("OTA download error:", errorMsg);

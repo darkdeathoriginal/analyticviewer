@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Globe, Grid, X } from "lucide-react-native";
+import { Globe, Grid, RefreshCw, X } from "lucide-react-native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -10,8 +10,6 @@ import {
   Linking,
   Modal,
   Platform,
-  RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -58,10 +56,6 @@ export default function ViewerScreen() {
   });
   const [refreshing, setRefreshing] = useState(false);
 
-  // For Android scroll handling - we need one ref per tab ideally, or just current
-  // Since we only pull-to-refresh the CURRENT one, we track its scroll
-  const [enablePullToRefresh, setEnablePullToRefresh] = useState(true);
-
   // Switcher State
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [savedApps, setSavedApps] = useState<SavedApp[]>([]);
@@ -79,12 +73,6 @@ export default function ViewerScreen() {
     setRefreshing(true);
     webViewRefs.current[currentTabId]?.reload();
   }, [currentTabId]);
-
-  const handleWebViewScroll = (event: any) => {
-    // Only strictly enable pull-to-refresh when we are at the very top
-    const yOffset = Number(event.nativeEvent.contentOffset.y);
-    setEnablePullToRefresh(yOffset <= 0);
-  };
 
   const switchApp = (app: SavedApp) => {
     setSwitcherVisible(false);
@@ -113,9 +101,7 @@ export default function ViewerScreen() {
       key={tab.id}
       style={[
         styles.webViewContainer,
-        // Use explicit height to ensure it fills screen inside ScrollView
-        { height: Dimensions.get("window").height },
-        // Use display none to hide but keep alive (better than height 0 for layout)
+        // Use display none to hide but keep alive
         !isActive && { display: "none" },
       ]}
     >
@@ -130,20 +116,16 @@ export default function ViewerScreen() {
           updateLoadingState(tab.id, false);
           if (isActive) setRefreshing(false);
         }}
-        // iOS specific
+        // iOS: built-in pull-to-refresh
         pullToRefreshEnabled={Platform.OS === "ios"}
-        // Android specific
+        // Android: prevent overscroll from bubbling up to any parent view,
+        // which is the root cause of accidental pull-to-refresh on scroll up
+        overScrollMode={Platform.OS === "android" ? "never" : undefined}
         onFileDownload={({ nativeEvent }) => {
           if (nativeEvent.downloadUrl) {
             Linking.openURL(nativeEvent.downloadUrl);
           }
         }}
-        // Android scroll sync (only relevant if active to avoid event spam)
-        onScroll={
-          Platform.OS === "android" && isActive
-            ? handleWebViewScroll
-            : undefined
-        }
         startInLoadingState={true}
         renderLoading={() => (
           <View style={styles.loadingContainer}>
@@ -158,28 +140,8 @@ export default function ViewerScreen() {
     <View style={styles.container}>
       <StatusBar style="light" hidden={true} />
 
-      {Platform.OS === "android" ? (
-        <ScrollView
-          contentContainerStyle={styles.scrollViewContent}
-          // We only enable the outer scrollview if the CURRENT tab allows it
-          scrollEnabled={enablePullToRefresh}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              enabled={enablePullToRefresh}
-              colors={[Colors.primary]}
-              progressBackgroundColor={Colors.surface}
-            />
-          }
-        >
-          {activeTabs.map((tab) => renderWebView(tab, tab.id === currentTabId))}
-        </ScrollView>
-      ) : (
-        // iOS Direct Render
-        // We render all tabs, but styles hide the inactive ones
-        activeTabs.map((tab) => renderWebView(tab, tab.id === currentTabId))
-      )}
+      {/* Render all tabs; inactive ones are hidden via display:none */}
+      {activeTabs.map((tab) => renderWebView(tab, tab.id === currentTabId))}
 
       {/* Loading overlay for current tab */}
       {loadingStates[currentTabId] && !refreshing && (
@@ -188,9 +150,18 @@ export default function ViewerScreen() {
         </View>
       )}
 
-      {/* Floating Switcher Button */}
+      {/* Floating Action Buttons */}
       {!switcherVisible && (
         <View style={styles.fabContainer} pointerEvents="box-none">
+          {/* Refresh button — replaces pull-to-refresh on Android */}
+          <TouchableOpacity
+            style={[styles.fab, styles.fabRefresh]}
+            onPress={onRefresh}
+            activeOpacity={0.8}
+            disabled={refreshing}
+          >
+            <RefreshCw color={refreshing ? "#888" : "#fff"} size={20} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.fab}
             onPress={() => setSwitcherVisible(true)}
@@ -325,6 +296,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4.65,
     elevation: 8,
+  },
+  fabRefresh: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginBottom: 10,
   },
   modalOverlay: {
     flex: 1,

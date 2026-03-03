@@ -2,7 +2,7 @@ export const Colors = {
   background: "#0a0a0a",
   surface: "#1a1a1a",
   surfaceLight: "#2a2a2a",
-  primary: "#bef63b", // Electric blue
+  primary: "#3b82f6", // Electric blue
   text: "#ffffff",
   textSecondary: "#a1a1aa",
   border: "#27272a",

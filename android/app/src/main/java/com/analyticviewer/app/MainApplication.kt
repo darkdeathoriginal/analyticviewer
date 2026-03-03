@@ -16,6 +16,8 @@ import com.facebook.react.defaults.DefaultReactNativeHost
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
 
+import java.io.File
+
 class MainApplication : Application(), ReactApplication {
 
   override val reactNativeHost: ReactNativeHost = ReactNativeHostWrapper(
@@ -32,6 +34,15 @@ class MainApplication : Application(), ReactApplication {
           override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
 
           override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
+
+          override fun getJSBundleFile(): String? {
+            val updateBundle = File(applicationContext.filesDir, "ota/index.android.bundle")
+            return if (updateBundle.exists()) {
+              updateBundle.absolutePath
+            } else {
+              null // Falls back to the default asset bundle
+            }
+          }
       }
   )
 

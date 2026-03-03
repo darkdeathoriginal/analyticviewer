@@ -20,11 +20,12 @@ export default function SettingsScreen() {
   const {
     checkUpdate,
     isChecking,
+    isDownloading,
     lastChecked,
     status,
     error,
     updateInfo,
-    downloadUpdate,
+    downloadAndApplyUpdate,
     buildInfo,
   } = useUpdateChecker(false);
 
@@ -56,16 +57,19 @@ export default function SettingsScreen() {
           : "New changes";
       Alert.alert(
         "Update Available",
-        `${commitCount} found!\n\nLatest: ${updateInfo.latestCommitShort} — ${updateInfo.commitMessage}${updateInfo.releaseName ? `\nRelease: ${updateInfo.releaseName}` : ""}`,
+        `${commitCount} found!\n\nLatest: ${updateInfo.latestCommitShort} — ${updateInfo.commitMessage}${updateInfo.hasOtaBundle ? "\n\nOTA update ready — no reinstall needed!" : ""}`,
         [
           { text: "Later", style: "cancel" },
-          { text: "Download", onPress: () => downloadUpdate() },
+          {
+            text: updateInfo.hasOtaBundle ? "Install OTA" : "Install",
+            onPress: () => downloadAndApplyUpdate(),
+          },
         ],
       );
     } else {
       Alert.alert("Update Status", `${status}${error ? `\n\n${error}` : ""}`);
     }
-  }, [status, updateInfo, downloadUpdate, error]);
+  }, [status, updateInfo, downloadAndApplyUpdate, error]);
 
   return (
     <ScrollView style={styles.container}>
@@ -90,13 +94,13 @@ export default function SettingsScreen() {
         <TouchableOpacity
           style={styles.button}
           onPress={handleManualCheck}
-          disabled={isChecking}
+          disabled={isChecking || isDownloading}
         >
           <LinearGradient
             colors={[Colors.surfaceLight, Colors.surface]}
             style={styles.buttonGradient}
           >
-            {isChecking ? (
+            {isChecking || isDownloading ? (
               <ActivityIndicator color={Colors.text} size="small" />
             ) : (
               <Text style={styles.buttonText}>Check for Updates Now</Text>

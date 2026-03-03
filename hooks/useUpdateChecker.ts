@@ -1,11 +1,17 @@
+import * as FileSystem from "expo-file-system";
+import * as Updates from "expo-updates";
 import { useCallback, useEffect, useState } from "react";
-import { Linking } from "react-native";
 import { BUILD_INFO } from "../constants/buildInfo";
 import { getSettings } from "../utils/settings";
 
 const GITHUB_OWNER = "darkdeathoriginal";
 const GITHUB_REPO = "analyticviewer";
 const GITHUB_BRANCH = "main";
+
+const OTA_RELEASE_TAG = "ota-latest";
+const OTA_DIR = `${FileSystem.documentDirectory}ota/`;
+const OTA_BUNDLE_PATH = `${OTA_DIR}index.android.bundle`;
+const OTA_META_PATH = `${OTA_DIR}meta.json`;
 
 interface GitCommit {
   sha: string;
@@ -25,13 +31,23 @@ interface CompareResponse {
   commits: GitCommit[];
 }
 
+interface OtaManifest {
+  commitHash: string;
+  commitShort: string;
+  commitMessage: string;
+  createdAt: string;
+  bundleFile: string;
+}
+
+interface GitReleaseAsset {
+  name: string;
+  browser_download_url: string;
+}
+
 interface GitRelease {
   tag_name: string;
   html_url: string;
-  assets: {
-    name: string;
-    browser_download_url: string;
-  }[];
+  assets: GitReleaseAsset[];
 }
 
 export interface UpdateInfo {
@@ -40,8 +56,7 @@ export interface UpdateInfo {
   commitMessage: string;
   commitDate: string;
   newCommitCount: number;
-  downloadUrl: string | null;
-  releaseName: string | null;
+  hasOtaBundle: boolean;
 }
 
 export function useUpdateChecker(autoCheckOnMount = true) {
@@ -50,6 +65,8 @@ export function useUpdateChecker(autoCheckOnMount = true) {
   const [isAvailable, setIsAvailable] = useState(false);
   const [lastChecked, setLastChecked] = useState<number | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
   const checkUpdate = useCallback(async (manual = false) => {
@@ -60,70 +77,93 @@ export function useUpdateChecker(autoCheckOnMount = true) {
 
       const currentSha = BUILD_INFO.commitHash;
 
+      // Check if we already have an applied OTA that matches remote
+      const appliedOta = await getAppliedOtaMeta();
+
       // Use the compare API to check how many commits remote is ahead
+      let latestSha: string;
+      let commitMessage: string;
+      let commitDate: string;
+      let newCommitCount = 0;
+
       const compareRes = await fetch(
         `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/compare/${currentSha}...${GITHUB_BRANCH}`,
-        {
-          headers: { Accept: "application/vnd.github.v3+json" },
-        },
+        { headers: { Accept: "application/vnd.github.v3+json" } },
       );
 
-      if (!compareRes.ok) {
-        // If compare fails (e.g. commit not found on remote), fall back to HEAD check
+      if (compareRes.ok) {
+        const compareData: CompareResponse = await compareRes.json();
+        if (
+          compareData.status !== "ahead" &&
+          compareData.status !== "diverged"
+        ) {
+          // Also check if an OTA is already applied and up to date
+          if (appliedOta && appliedOta.commitHash === currentSha) {
+            // We're on OTA that matches build - clean
+          }
+          handleUpToDate(manual);
+          return;
+        }
+        const latest = compareData.commits[compareData.commits.length - 1];
+        latestSha = latest.sha;
+        commitMessage = latest.commit.message.split("\n")[0];
+        commitDate = latest.commit.author.date;
+        newCommitCount = compareData.ahead_by;
+      } else {
+        // Fallback to HEAD check
         const headRes = await fetch(
           `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/commits/${GITHUB_BRANCH}`,
-          {
-            headers: { Accept: "application/vnd.github.v3+json" },
-          },
+          { headers: { Accept: "application/vnd.github.v3+json" } },
         );
-
         if (!headRes.ok) {
           throw new Error(`GitHub API error: ${headRes.status}`);
         }
-
         const headData: GitCommit = await headRes.json();
-        setLastChecked(Date.now());
-
-        if (headData.sha !== currentSha) {
-          const info = await fetchReleaseInfo();
-          setUpdateInfo({
-            latestCommit: headData.sha,
-            latestCommitShort: headData.sha.slice(0, 7),
-            commitMessage: headData.commit.message.split("\n")[0],
-            commitDate: headData.commit.author.date,
-            newCommitCount: 0, // Unknown when compare API fails
-            ...info,
-          });
-          setStatus("Update Available");
-          setIsAvailable(true);
-        } else {
+        if (headData.sha === currentSha) {
           handleUpToDate(manual);
+          return;
         }
+        latestSha = headData.sha;
+        commitMessage = headData.commit.message.split("\n")[0];
+        commitDate = headData.commit.author.date;
+      }
+
+      setLastChecked(Date.now());
+
+      // Check if the applied OTA already matches the latest remote commit
+      if (appliedOta && appliedOta.commitHash === latestSha) {
+        handleUpToDate(manual);
         return;
       }
 
-      const compareData: CompareResponse = await compareRes.json();
-      setLastChecked(Date.now());
-
-      if (compareData.status === "ahead" || compareData.status === "diverged") {
-        const latestCommit =
-          compareData.commits[compareData.commits.length - 1];
-        const info = await fetchReleaseInfo();
-
-        setUpdateInfo({
-          latestCommit: latestCommit.sha,
-          latestCommitShort: latestCommit.sha.slice(0, 7),
-          commitMessage: latestCommit.commit.message.split("\n")[0],
-          commitDate: latestCommit.commit.author.date,
-          newCommitCount: compareData.ahead_by,
-          ...info,
-        });
-
-        setStatus("Update Available");
-        setIsAvailable(true);
-      } else {
-        handleUpToDate(manual);
+      // Check if OTA bundle exists in the ota-latest release
+      let hasOtaBundle = false;
+      try {
+        const releaseRes = await fetch(
+          `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tags/${OTA_RELEASE_TAG}`,
+          { headers: { Accept: "application/vnd.github.v3+json" } },
+        );
+        if (releaseRes.ok) {
+          const releaseData: GitRelease = await releaseRes.json();
+          hasOtaBundle = releaseData.assets.some(
+            (a) => a.name === "index.android.bundle",
+          );
+        }
+      } catch {
+        // No OTA release
       }
+
+      setUpdateInfo({
+        latestCommit: latestSha,
+        latestCommitShort: latestSha.slice(0, 7),
+        commitMessage,
+        commitDate,
+        newCommitCount,
+        hasOtaBundle,
+      });
+
+      setStatus("Update Available");
+      setIsAvailable(true);
     } catch (err: any) {
       const errorMsg = err?.message ?? "Unknown error";
       console.log("Update check error:", errorMsg);
@@ -149,54 +189,120 @@ export function useUpdateChecker(autoCheckOnMount = true) {
     setUpdateInfo(null);
   };
 
-  const fetchReleaseInfo = async (): Promise<{
-    downloadUrl: string | null;
-    releaseName: string | null;
-  }> => {
-    let downloadUrl: string | null = null;
-    let releaseName: string | null = null;
-
+  const getAppliedOtaMeta = async (): Promise<OtaManifest | null> => {
     try {
-      const releaseRes = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
-        {
-          headers: { Accept: "application/vnd.github.v3+json" },
-        },
-      );
-
-      if (releaseRes.ok) {
-        const releaseData: GitRelease = await releaseRes.json();
-        releaseName = releaseData.tag_name;
-
-        const apkAsset = releaseData.assets.find(
-          (a) => a.name.endsWith(".apk") || a.name.endsWith(".aab"),
-        );
-
-        if (apkAsset) {
-          downloadUrl = apkAsset.browser_download_url;
-        } else {
-          downloadUrl = releaseData.html_url;
-        }
+      const metaInfo = await FileSystem.getInfoAsync(OTA_META_PATH);
+      if (metaInfo.exists) {
+        const content = await FileSystem.readAsStringAsync(OTA_META_PATH);
+        return JSON.parse(content);
       }
     } catch {
-      // No release found
+      // No meta file
     }
-
-    if (!downloadUrl) {
-      downloadUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
-    }
-
-    return { downloadUrl, releaseName };
+    return null;
   };
 
-  const downloadUpdate = useCallback(async () => {
-    if (!updateInfo?.downloadUrl) return;
+  const downloadAndApplyUpdate = useCallback(async () => {
+    if (!updateInfo) return;
+
     try {
-      await Linking.openURL(updateInfo.downloadUrl);
-    } catch {
-      setError("Failed to open download link");
+      setIsDownloading(true);
+      setDownloadProgress(0);
+      setStatus("Downloading update...");
+
+      // Fetch the OTA release to get download URLs
+      const releaseRes = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tags/${OTA_RELEASE_TAG}`,
+        { headers: { Accept: "application/vnd.github.v3+json" } },
+      );
+
+      if (!releaseRes.ok) {
+        throw new Error(
+          "OTA release not found. Push to main to trigger a build.",
+        );
+      }
+
+      const releaseData: GitRelease = await releaseRes.json();
+      const bundleAsset = releaseData.assets.find(
+        (a) => a.name === "index.android.bundle",
+      );
+      const manifestAsset = releaseData.assets.find(
+        (a) => a.name === "ota-manifest.json",
+      );
+
+      if (!bundleAsset) {
+        throw new Error("No bundle found in OTA release");
+      }
+
+      // Ensure OTA directory exists
+      const dirInfo = await FileSystem.getInfoAsync(OTA_DIR);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(OTA_DIR, { intermediates: true });
+      }
+
+      // Download the bundle
+      setStatus("Downloading bundle...");
+      const downloadResult = await FileSystem.downloadAsync(
+        bundleAsset.browser_download_url,
+        OTA_BUNDLE_PATH,
+      );
+
+      if (downloadResult.status !== 200) {
+        throw new Error(
+          `Bundle download failed: HTTP ${downloadResult.status}`,
+        );
+      }
+
+      // Download and save manifest as meta
+      if (manifestAsset) {
+        const manifestResult = await FileSystem.downloadAsync(
+          manifestAsset.browser_download_url,
+          OTA_META_PATH,
+        );
+        if (manifestResult.status !== 200) {
+          console.log("Failed to download OTA manifest, saving basic meta");
+          await saveBasicMeta();
+        }
+      } else {
+        await saveBasicMeta();
+      }
+
+      setStatus("Update downloaded! Restarting...");
+      setDownloadProgress(100);
+
+      // Short delay so user sees the message, then reload
+      setTimeout(async () => {
+        try {
+          await Updates.reloadAsync();
+        } catch {
+          // If expo-updates reload doesn't work, inform user to restart manually
+          setStatus("Update installed! Please restart the app.");
+        }
+      }, 1500);
+    } catch (err: any) {
+      const errorMsg = err?.message ?? "Download failed";
+      console.log("OTA download error:", errorMsg);
+      setStatus(`Download failed: ${errorMsg}`);
+      setError(errorMsg);
+      setIsDownloading(false);
+      setTimeout(() => {
+        setStatus(updateInfo ? "Update Available" : null);
+        setError(null);
+      }, 5000);
     }
   }, [updateInfo]);
+
+  const saveBasicMeta = async () => {
+    if (!updateInfo) return;
+    const meta: OtaManifest = {
+      commitHash: updateInfo.latestCommit,
+      commitShort: updateInfo.latestCommitShort,
+      commitMessage: updateInfo.commitMessage,
+      createdAt: new Date().toISOString(),
+      bundleFile: "index.android.bundle",
+    };
+    await FileSystem.writeAsStringAsync(OTA_META_PATH, JSON.stringify(meta));
+  };
 
   useEffect(() => {
     if (!autoCheckOnMount) return;
@@ -215,9 +321,11 @@ export function useUpdateChecker(autoCheckOnMount = true) {
     isAvailable,
     lastChecked,
     isChecking,
+    isDownloading,
+    downloadProgress,
     updateInfo,
     checkUpdate,
-    downloadUpdate,
+    downloadAndApplyUpdate,
     setStatus,
     buildInfo: BUILD_INFO,
   };

@@ -1,0 +1,73 @@
+name: Build & Publish OTA Update
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build-ota:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Embed commit info
+        run: node scripts/embed-commit.js
+
+      - name: Build JS bundle for Android
+        run: |
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file node_modules/expo-router/entry.js \
+            --bundle-output index.android.bundle \
+            --assets-dest android/app/src/main/res
+
+      - name: Prepare release info
+        id: info
+        run: |
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          COMMIT_HASH=$(git rev-parse HEAD)
+          COMMIT_MSG=$(git log -1 --format=%s)
+          echo "commit_short=$COMMIT_SHORT" >> $GITHUB_OUTPUT
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+
+          cat > ota-manifest.json << EOF
+          {
+            "commitHash": "$COMMIT_HASH",
+            "commitShort": "$COMMIT_SHORT",
+            "commitMessage": "$COMMIT_MSG",
+            "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "bundleFile": "index.android.bundle"
+          }
+          EOF
+
+      - name: Delete existing OTA release
+        run: |
+          gh release delete ota-latest --yes || true
+          git push origin :refs/tags/ota-latest || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create OTA release
+        run: |
+          gh release create ota-latest \
+            --title "OTA Update (${{ steps.info.outputs.commit_short }})" \
+            --notes "Automatic OTA update for commit ${{ steps.info.outputs.commit_short }}" \
+            --prerelease \
+            index.android.bundle \
+            ota-manifest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

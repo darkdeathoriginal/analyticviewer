@@ -9,8 +9,15 @@ import { useUpdateChecker } from "../hooks/useUpdateChecker";
 
 export default function RootLayout() {
   const [bannerVisible, setBannerVisible] = useState(true);
-  const { status, error, isAvailable, updateInfo, downloadUpdate, setStatus } =
-    useUpdateChecker();
+  const {
+    status,
+    error,
+    isAvailable,
+    updateInfo,
+    isDownloading,
+    downloadAndApplyUpdate,
+    setStatus,
+  } = useUpdateChecker();
 
   const handleBannerClose = () => {
     setBannerVisible(false);
@@ -86,8 +93,9 @@ export default function RootLayout() {
         status={status}
         error={error}
         updateInfo={updateInfo}
+        isDownloading={isDownloading}
         onClose={handleBannerClose}
-        onDownload={downloadUpdate}
+        onDownload={downloadAndApplyUpdate}
       />
     </View>
   );

@@ -1,5 +1,11 @@
 import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { Colors } from "../constants/theme";
 import { UpdateInfo } from "../hooks/useUpdateChecker";
 
@@ -7,6 +13,7 @@ interface UpdateBannerProps {
   status: string | null;
   error: string | null;
   updateInfo: UpdateInfo | null;
+  isDownloading?: boolean;
   onDownload: () => void;
   onClose: () => void;
   visible: boolean;
@@ -16,22 +23,31 @@ export default function UpdateBanner({
   status,
   error,
   updateInfo,
+  isDownloading,
   onDownload,
   onClose,
   visible,
 }: UpdateBannerProps) {
   if (!status || !visible) return null;
 
+  const isDownloadingOrApplying =
+    isDownloading ||
+    status === "Downloading update..." ||
+    status === "Downloading bundle..." ||
+    status === "Update downloaded! Restarting...";
+
   return (
     <View style={styles.container}>
       {/* Close Button */}
-      <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-        <Text style={styles.closeButtonText}>✕</Text>
-      </TouchableOpacity>
+      {!isDownloadingOrApplying && (
+        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <Text style={styles.closeButtonText}>✕</Text>
+        </TouchableOpacity>
+      )}
 
       <Text style={styles.statusText}>{status}</Text>
 
-      {updateInfo && (
+      {updateInfo && !isDownloadingOrApplying && (
         <>
           <Text style={styles.commitText} numberOfLines={1}>
             {updateInfo.latestCommitShort}: {updateInfo.commitMessage}
@@ -40,18 +56,32 @@ export default function UpdateBanner({
             {updateInfo.newCommitCount > 0
               ? `${updateInfo.newCommitCount} new commit${updateInfo.newCommitCount > 1 ? "s" : ""}`
               : "New changes available"}
-            {updateInfo.releaseName
-              ? ` · Release: ${updateInfo.releaseName}`
-              : ""}
+            {updateInfo.hasOtaBundle ? " · OTA ready" : ""}
           </Text>
         </>
+      )}
+
+      {isDownloadingOrApplying && (
+        <ActivityIndicator
+          color={Colors.primary}
+          size="small"
+          style={{ marginTop: 8 }}
+        />
       )}
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
       {status === "Update Available" && (
-        <TouchableOpacity onPress={onDownload} style={styles.reloadButton}>
-          <Text style={styles.reloadButtonText}>Download Update</Text>
+        <TouchableOpacity
+          onPress={onDownload}
+          style={styles.reloadButton}
+          disabled={isDownloading}
+        >
+          <Text style={styles.reloadButtonText}>
+            {updateInfo?.hasOtaBundle
+              ? "Install Update (OTA)"
+              : "Install Update"}
+          </Text>
         </TouchableOpacity>
       )}
     </View>

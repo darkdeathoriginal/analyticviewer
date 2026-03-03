@@ -22,20 +22,30 @@
     },
     "android": {
       "package": "com.analyticviewer.app",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0a0a"
-      }
+      },
+      "cpuArchitectures": ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"],
+      "isSplitBundle": true
     },
     "web": {
       "bundler": "metro",
       "output": "static"
     },
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "cpuArchitectures": ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
+          }
+        }
+      ]
+    ],
     "updates": {
-      "url": "https://u.expo.dev/1ee40bf0-cd6e-492f-b43b-a79cdfaa72b3",
-      "channel": "production"
+      "url": "https://u.expo.dev/1ee40bf0-cd6e-492f-b43b-a79cdfaa72b3"
     },
     "runtimeVersion": "1.0.0",
     "experiments": {

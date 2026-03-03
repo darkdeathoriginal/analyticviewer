@@ -125,9 +125,10 @@ export function useUpdateChecker(autoCheckOnMount = true) {
         handleUpToDate(manual);
       }
     } catch (err: any) {
-      console.log("Update check error:", err);
-      if (manual) setStatus("Update check failed");
-      setError(err?.message ?? "Unknown error");
+      const errorMsg = err?.message ?? "Unknown error";
+      console.log("Update check error:", errorMsg);
+      if (manual) setStatus(`Update check failed: ${errorMsg}`);
+      setError(errorMsg);
       setTimeout(() => {
         setStatus(null);
         setError(null);

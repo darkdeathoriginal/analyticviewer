@@ -63,9 +63,9 @@ export default function SettingsScreen() {
         ],
       );
     } else {
-      Alert.alert("Update Status", status);
+      Alert.alert("Update Status", `${status}${error ? `\n\n${error}` : ""}`);
     }
-  }, [status, updateInfo, downloadUpdate]);
+  }, [status, updateInfo, downloadUpdate, error]);
 
   return (
     <ScrollView style={styles.container}>

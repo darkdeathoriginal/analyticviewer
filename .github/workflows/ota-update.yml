@@ -28,12 +28,21 @@ jobs:
 
       - name: Build JS bundle for Android
         run: |
-          npx react-native bundle \
-            --platform android \
-            --dev false \
-            --entry-file node_modules/expo-router/entry.js \
-            --bundle-output index.android.bundle \
-            --assets-dest android/app/src/main/res
+          npx expo export --platform android --output-dir dist
+
+          # Find the Hermes bytecode bundle
+          BUNDLE=$(find dist/_expo -name "*.hbc" | head -1)
+          if [ -z "$BUNDLE" ]; then
+            # Fallback to any JS file
+            BUNDLE=$(find dist/_expo -name "*.js" | head -1)
+          fi
+          if [ -z "$BUNDLE" ]; then
+            echo "::error::No bundle found in dist/"
+            find dist -type f
+            exit 1
+          fi
+          echo "Found bundle: $BUNDLE ($(stat -c%s "$BUNDLE") bytes)"
+          cp "$BUNDLE" index.android.bundle
 
       - name: Prepare release info
         id: info

@@ -16,6 +16,7 @@ import { getSettings, saveSettings } from "../utils/settings";
 
 export default function SettingsScreen() {
   const [autoUpdate, setAutoUpdate] = useState(true);
+  // Don't auto-check on mount — the layout already handles auto-check
   const {
     checkUpdate,
     isChecking,
@@ -25,7 +26,7 @@ export default function SettingsScreen() {
     updateInfo,
     downloadUpdate,
     buildInfo,
-  } = useUpdateChecker();
+  } = useUpdateChecker(false);
 
   useEffect(() => {
     loadSettings();
@@ -46,21 +47,25 @@ export default function SettingsScreen() {
   };
 
   useEffect(() => {
-    if (status && status !== "Checking for updates...") {
-      if (status === "Update Available" && updateInfo) {
-        Alert.alert(
-          "Update Available",
-          `New version: ${updateInfo.latestCommitShort}\n${updateInfo.commitMessage}${updateInfo.releaseName ? `\nRelease: ${updateInfo.releaseName}` : ""}`,
-          [
-            { text: "Later", style: "cancel" },
-            { text: "Download", onPress: downloadUpdate },
-          ],
-        );
-      } else if (status !== "Update Available") {
-        Alert.alert("Update Status", status);
-      }
+    if (!status || status === "Checking for updates...") return;
+
+    if (status === "Update Available" && updateInfo) {
+      const commitCount =
+        updateInfo.newCommitCount > 0
+          ? `${updateInfo.newCommitCount} new commit${updateInfo.newCommitCount > 1 ? "s" : ""}`
+          : "New changes";
+      Alert.alert(
+        "Update Available",
+        `${commitCount} found!\n\nLatest: ${updateInfo.latestCommitShort} — ${updateInfo.commitMessage}${updateInfo.releaseName ? `\nRelease: ${updateInfo.releaseName}` : ""}`,
+        [
+          { text: "Later", style: "cancel" },
+          { text: "Download", onPress: () => downloadUpdate() },
+        ],
+      );
+    } else {
+      Alert.alert("Update Status", status);
     }
-  }, [status]);
+  }, [status, updateInfo, downloadUpdate]);
 
   return (
     <ScrollView style={styles.container}>

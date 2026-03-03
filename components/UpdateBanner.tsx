@@ -37,9 +37,12 @@ export default function UpdateBanner({
             {updateInfo.latestCommitShort}: {updateInfo.commitMessage}
           </Text>
           <Text style={styles.metaText}>
+            {updateInfo.newCommitCount > 0
+              ? `${updateInfo.newCommitCount} new commit${updateInfo.newCommitCount > 1 ? "s" : ""}`
+              : "New changes available"}
             {updateInfo.releaseName
-              ? `Release: ${updateInfo.releaseName}`
-              : `New commits available`}
+              ? ` · Release: ${updateInfo.releaseName}`
+              : ""}
           </Text>
         </>
       )}

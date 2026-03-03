@@ -17,6 +17,14 @@ interface GitCommit {
   };
 }
 
+interface CompareResponse {
+  status: "ahead" | "behind" | "identical" | "diverged";
+  ahead_by: number;
+  behind_by: number;
+  total_commits: number;
+  commits: GitCommit[];
+}
+
 interface GitRelease {
   tag_name: string;
   html_url: string;
@@ -31,11 +39,12 @@ export interface UpdateInfo {
   latestCommitShort: string;
   commitMessage: string;
   commitDate: string;
+  newCommitCount: number;
   downloadUrl: string | null;
   releaseName: string | null;
 }
 
-export function useUpdateChecker() {
+export function useUpdateChecker(autoCheckOnMount = true) {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isAvailable, setIsAvailable] = useState(false);
@@ -49,82 +58,71 @@ export function useUpdateChecker() {
       setError(null);
       if (manual) setStatus("Checking for updates...");
 
-      // Fetch latest commit on the branch
-      const commitRes = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/commits/${GITHUB_BRANCH}`,
+      const currentSha = BUILD_INFO.commitHash;
+
+      // Use the compare API to check how many commits remote is ahead
+      const compareRes = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/compare/${currentSha}...${GITHUB_BRANCH}`,
         {
           headers: { Accept: "application/vnd.github.v3+json" },
         },
       );
 
-      if (!commitRes.ok) {
-        throw new Error(`GitHub API error: ${commitRes.status}`);
+      if (!compareRes.ok) {
+        // If compare fails (e.g. commit not found on remote), fall back to HEAD check
+        const headRes = await fetch(
+          `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/commits/${GITHUB_BRANCH}`,
+          {
+            headers: { Accept: "application/vnd.github.v3+json" },
+          },
+        );
+
+        if (!headRes.ok) {
+          throw new Error(`GitHub API error: ${headRes.status}`);
+        }
+
+        const headData: GitCommit = await headRes.json();
+        setLastChecked(Date.now());
+
+        if (headData.sha !== currentSha) {
+          const info = await fetchReleaseInfo();
+          setUpdateInfo({
+            latestCommit: headData.sha,
+            latestCommitShort: headData.sha.slice(0, 7),
+            commitMessage: headData.commit.message.split("\n")[0],
+            commitDate: headData.commit.author.date,
+            newCommitCount: 0, // Unknown when compare API fails
+            ...info,
+          });
+          setStatus("Update Available");
+          setIsAvailable(true);
+        } else {
+          handleUpToDate(manual);
+        }
+        return;
       }
 
-      const commitData: GitCommit = await commitRes.json();
+      const compareData: CompareResponse = await compareRes.json();
       setLastChecked(Date.now());
 
-      const latestSha = commitData.sha;
-      const currentSha = BUILD_INFO.commitHash;
-
-      if (latestSha !== currentSha) {
-        // New commits available — check for a release with an APK
-        let downloadUrl: string | null = null;
-        let releaseName: string | null = null;
-
-        try {
-          const releaseRes = await fetch(
-            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
-            {
-              headers: { Accept: "application/vnd.github.v3+json" },
-            },
-          );
-
-          if (releaseRes.ok) {
-            const releaseData: GitRelease = await releaseRes.json();
-            releaseName = releaseData.tag_name;
-
-            // Look for an APK asset
-            const apkAsset = releaseData.assets.find(
-              (a) => a.name.endsWith(".apk") || a.name.endsWith(".aab"),
-            );
-
-            if (apkAsset) {
-              downloadUrl = apkAsset.browser_download_url;
-            } else {
-              // Fallback to the release page
-              downloadUrl = releaseData.html_url;
-            }
-          }
-        } catch {
-          // No release found — that's fine, we still know there's new code
-        }
-
-        // If no release, fallback to the repo page
-        if (!downloadUrl) {
-          downloadUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
-        }
+      if (compareData.status === "ahead" || compareData.status === "diverged") {
+        const latestCommit =
+          compareData.commits[compareData.commits.length - 1];
+        const info = await fetchReleaseInfo();
 
         setUpdateInfo({
-          latestCommit: latestSha,
-          latestCommitShort: latestSha.slice(0, 7),
-          commitMessage: commitData.commit.message.split("\n")[0],
-          commitDate: commitData.commit.author.date,
-          downloadUrl,
-          releaseName,
+          latestCommit: latestCommit.sha,
+          latestCommitShort: latestCommit.sha.slice(0, 7),
+          commitMessage: latestCommit.commit.message.split("\n")[0],
+          commitDate: latestCommit.commit.author.date,
+          newCommitCount: compareData.ahead_by,
+          ...info,
         });
 
         setStatus("Update Available");
         setIsAvailable(true);
       } else {
-        if (manual) {
-          setStatus("You're up to date!");
-          setTimeout(() => setStatus(null), 3000);
-        } else {
-          setStatus(null);
-        }
-        setIsAvailable(false);
-        setUpdateInfo(null);
+        handleUpToDate(manual);
       }
     } catch (err: any) {
       console.log("Update check error:", err);
@@ -139,16 +137,68 @@ export function useUpdateChecker() {
     }
   }, []);
 
+  const handleUpToDate = (manual: boolean) => {
+    if (manual) {
+      setStatus("You're up to date!");
+      setTimeout(() => setStatus(null), 3000);
+    } else {
+      setStatus(null);
+    }
+    setIsAvailable(false);
+    setUpdateInfo(null);
+  };
+
+  const fetchReleaseInfo = async (): Promise<{
+    downloadUrl: string | null;
+    releaseName: string | null;
+  }> => {
+    let downloadUrl: string | null = null;
+    let releaseName: string | null = null;
+
+    try {
+      const releaseRes = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+        {
+          headers: { Accept: "application/vnd.github.v3+json" },
+        },
+      );
+
+      if (releaseRes.ok) {
+        const releaseData: GitRelease = await releaseRes.json();
+        releaseName = releaseData.tag_name;
+
+        const apkAsset = releaseData.assets.find(
+          (a) => a.name.endsWith(".apk") || a.name.endsWith(".aab"),
+        );
+
+        if (apkAsset) {
+          downloadUrl = apkAsset.browser_download_url;
+        } else {
+          downloadUrl = releaseData.html_url;
+        }
+      }
+    } catch {
+      // No release found
+    }
+
+    if (!downloadUrl) {
+      downloadUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
+    }
+
+    return { downloadUrl, releaseName };
+  };
+
   const downloadUpdate = useCallback(async () => {
     if (!updateInfo?.downloadUrl) return;
     try {
       await Linking.openURL(updateInfo.downloadUrl);
-    } catch (err: any) {
+    } catch {
       setError("Failed to open download link");
     }
   }, [updateInfo]);
 
   useEffect(() => {
+    if (!autoCheckOnMount) return;
     async function init() {
       const settings = await getSettings();
       if (settings.autoUpdate) {
@@ -156,7 +206,7 @@ export function useUpdateChecker() {
       }
     }
     init();
-  }, [checkUpdate]);
+  }, [checkUpdate, autoCheckOnMount]);
 
   return {
     status,

@@ -1,6 +1,39 @@
-import * as Updates from "expo-updates";
 import { useCallback, useEffect, useState } from "react";
+import { Linking } from "react-native";
+import { BUILD_INFO } from "../constants/buildInfo";
 import { getSettings } from "../utils/settings";
+
+const GITHUB_OWNER = "darkdeathoriginal";
+const GITHUB_REPO = "analyticviewer";
+const GITHUB_BRANCH = "main";
+
+interface GitCommit {
+  sha: string;
+  commit: {
+    message: string;
+    author: {
+      date: string;
+    };
+  };
+}
+
+interface GitRelease {
+  tag_name: string;
+  html_url: string;
+  assets: {
+    name: string;
+    browser_download_url: string;
+  }[];
+}
+
+export interface UpdateInfo {
+  latestCommit: string;
+  latestCommitShort: string;
+  commitMessage: string;
+  commitDate: string;
+  downloadUrl: string | null;
+  releaseName: string | null;
+}
 
 export function useUpdateChecker() {
   const [status, setStatus] = useState<string | null>(null);
@@ -8,53 +41,112 @@ export function useUpdateChecker() {
   const [isAvailable, setIsAvailable] = useState(false);
   const [lastChecked, setLastChecked] = useState<number | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
   const checkUpdate = useCallback(async (manual = false) => {
-    if (__DEV__) {
-      if (manual) {
-        setStatus("Development Mode (EAS disabled)");
-        setTimeout(() => setStatus(null), 3000);
-      }
-      return;
-    }
-
-    if (!Updates.isEnabled) {
-      if (manual) {
-        setStatus("EAS Updates not enabled");
-        setTimeout(() => setStatus(null), 3000);
-      }
-      return;
-    }
-
     try {
       setIsChecking(true);
+      setError(null);
       if (manual) setStatus("Checking for updates...");
 
-      const update = await Updates.checkForUpdateAsync();
+      // Fetch latest commit on the branch
+      const commitRes = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/commits/${GITHUB_BRANCH}`,
+        {
+          headers: { Accept: "application/vnd.github.v3+json" },
+        },
+      );
+
+      if (!commitRes.ok) {
+        throw new Error(`GitHub API error: ${commitRes.status}`);
+      }
+
+      const commitData: GitCommit = await commitRes.json();
       setLastChecked(Date.now());
 
-      if (update.isAvailable) {
-        setStatus("Downloading update...");
-        await Updates.fetchUpdateAsync();
-        setStatus("Update Ready");
+      const latestSha = commitData.sha;
+      const currentSha = BUILD_INFO.commitHash;
+
+      if (latestSha !== currentSha) {
+        // New commits available — check for a release with an APK
+        let downloadUrl: string | null = null;
+        let releaseName: string | null = null;
+
+        try {
+          const releaseRes = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+            {
+              headers: { Accept: "application/vnd.github.v3+json" },
+            },
+          );
+
+          if (releaseRes.ok) {
+            const releaseData: GitRelease = await releaseRes.json();
+            releaseName = releaseData.tag_name;
+
+            // Look for an APK asset
+            const apkAsset = releaseData.assets.find(
+              (a) => a.name.endsWith(".apk") || a.name.endsWith(".aab"),
+            );
+
+            if (apkAsset) {
+              downloadUrl = apkAsset.browser_download_url;
+            } else {
+              // Fallback to the release page
+              downloadUrl = releaseData.html_url;
+            }
+          }
+        } catch {
+          // No release found — that's fine, we still know there's new code
+        }
+
+        // If no release, fallback to the repo page
+        if (!downloadUrl) {
+          downloadUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
+        }
+
+        setUpdateInfo({
+          latestCommit: latestSha,
+          latestCommitShort: latestSha.slice(0, 7),
+          commitMessage: commitData.commit.message.split("\n")[0],
+          commitDate: commitData.commit.author.date,
+          downloadUrl,
+          releaseName,
+        });
+
+        setStatus("Update Available");
         setIsAvailable(true);
       } else {
         if (manual) {
-          setStatus("No updates available");
+          setStatus("You're up to date!");
           setTimeout(() => setStatus(null), 3000);
         } else {
           setStatus(null);
         }
         setIsAvailable(false);
+        setUpdateInfo(null);
       }
     } catch (err: any) {
-      console.log("Update error:", err);
-      if (manual) setStatus("Update Error");
+      console.log("Update check error:", err);
+      if (manual) setStatus("Update check failed");
       setError(err?.message ?? "Unknown error");
+      setTimeout(() => {
+        setStatus(null);
+        setError(null);
+      }, 5000);
     } finally {
       setIsChecking(false);
     }
   }, []);
+
+  const downloadUpdate = useCallback(async () => {
+    if (!updateInfo?.downloadUrl) return;
+    try {
+      await Linking.openURL(updateInfo.downloadUrl);
+    } catch (err: any) {
+      setError("Failed to open download link");
+    }
+  }, [updateInfo]);
 
   useEffect(() => {
     async function init() {
@@ -72,7 +164,10 @@ export function useUpdateChecker() {
     isAvailable,
     lastChecked,
     isChecking,
+    updateInfo,
     checkUpdate,
-    setStatus, // Exported to allow manual clearing or setting custom messages if needed
+    downloadUpdate,
+    setStatus,
+    buildInfo: BUILD_INFO,
   };
 }

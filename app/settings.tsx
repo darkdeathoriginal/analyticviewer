@@ -1,5 +1,4 @@
 import { LinearGradient } from "expo-linear-gradient";
-import * as Updates from "expo-updates";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -17,8 +16,16 @@ import { getSettings, saveSettings } from "../utils/settings";
 
 export default function SettingsScreen() {
   const [autoUpdate, setAutoUpdate] = useState(true);
-  const { checkUpdate, isChecking, lastChecked, status, error } =
-    useUpdateChecker();
+  const {
+    checkUpdate,
+    isChecking,
+    lastChecked,
+    status,
+    error,
+    updateInfo,
+    downloadUpdate,
+    buildInfo,
+  } = useUpdateChecker();
 
   useEffect(() => {
     loadSettings();
@@ -40,7 +47,18 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     if (status && status !== "Checking for updates...") {
-      Alert.alert("Update Status", status);
+      if (status === "Update Available" && updateInfo) {
+        Alert.alert(
+          "Update Available",
+          `New version: ${updateInfo.latestCommitShort}\n${updateInfo.commitMessage}${updateInfo.releaseName ? `\nRelease: ${updateInfo.releaseName}` : ""}`,
+          [
+            { text: "Later", style: "cancel" },
+            { text: "Download", onPress: downloadUpdate },
+          ],
+        );
+      } else if (status !== "Update Available") {
+        Alert.alert("Update Status", status);
+      }
     }
   }, [status]);
 
@@ -90,21 +108,33 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>App Info</Text>
         <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Runtime Version</Text>
+          <Text style={styles.infoLabel}>Build Commit</Text>
+          <Text style={styles.infoValue}>{buildInfo.commitShort}</Text>
+        </View>
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>Branch</Text>
+          <Text style={styles.infoValue}>{buildInfo.branch}</Text>
+        </View>
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>Build Date</Text>
           <Text style={styles.infoValue}>
-            {Updates.runtimeVersion ?? "Unknown"}
+            {buildInfo.buildTime
+              ? new Date(buildInfo.buildTime).toLocaleDateString()
+              : "Unknown"}
           </Text>
         </View>
         <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Channel</Text>
-          <Text style={styles.infoValue}>{Updates.channel ?? "Unknown"}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Update ID</Text>
-          <Text style={styles.infoValue}>
-            {Updates.updateId ? Updates.updateId.slice(0, 8) + "..." : "None"}
+          <Text style={styles.infoLabel}>Last Commit</Text>
+          <Text style={styles.infoValue} numberOfLines={1}>
+            {buildInfo.commitMessage || "Unknown"}
           </Text>
         </View>
+        {updateInfo && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Latest Remote</Text>
+            <Text style={styles.infoValue}>{updateInfo.latestCommitShort}</Text>
+          </View>
+        )}
       </View>
     </ScrollView>
   );

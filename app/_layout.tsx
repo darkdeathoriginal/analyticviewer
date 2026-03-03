@@ -1,6 +1,5 @@
 import { Link, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import * as Updates from "expo-updates";
 import { Settings as SettingsIcon } from "lucide-react-native";
 import React, { useState } from "react";
 import { Image, Text, TouchableOpacity, View } from "react-native";
@@ -10,15 +9,12 @@ import { useUpdateChecker } from "../hooks/useUpdateChecker";
 
 export default function RootLayout() {
   const [bannerVisible, setBannerVisible] = useState(true);
-  const { status, error, isAvailable, setStatus } = useUpdateChecker();
+  const { status, error, isAvailable, updateInfo, downloadUpdate, setStatus } =
+    useUpdateChecker();
 
   const handleBannerClose = () => {
     setBannerVisible(false);
-    setStatus(null); // Clear status when closed
-  };
-
-  const handleReload = async () => {
-    await Updates.reloadAsync();
+    setStatus(null);
   };
 
   return (
@@ -89,8 +85,9 @@ export default function RootLayout() {
         visible={bannerVisible && !!status}
         status={status}
         error={error}
+        updateInfo={updateInfo}
         onClose={handleBannerClose}
-        onReload={handleReload}
+        onDownload={downloadUpdate}
       />
     </View>
   );

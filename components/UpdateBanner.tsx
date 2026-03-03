@@ -1,12 +1,13 @@
-import * as Updates from "expo-updates";
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Colors } from "../constants/theme";
+import { UpdateInfo } from "../hooks/useUpdateChecker";
 
 interface UpdateBannerProps {
   status: string | null;
   error: string | null;
-  onReload: () => void;
+  updateInfo: UpdateInfo | null;
+  onDownload: () => void;
   onClose: () => void;
   visible: boolean;
 }
@@ -14,7 +15,8 @@ interface UpdateBannerProps {
 export default function UpdateBanner({
   status,
   error,
-  onReload,
+  updateInfo,
+  onDownload,
   onClose,
   visible,
 }: UpdateBannerProps) {
@@ -29,16 +31,24 @@ export default function UpdateBanner({
 
       <Text style={styles.statusText}>{status}</Text>
 
-      <Text style={styles.metaText}>
-        Runtime: {Updates.runtimeVersion ?? "null"} | Channel:{" "}
-        {Updates.channel ?? "null"}
-      </Text>
+      {updateInfo && (
+        <>
+          <Text style={styles.commitText} numberOfLines={1}>
+            {updateInfo.latestCommitShort}: {updateInfo.commitMessage}
+          </Text>
+          <Text style={styles.metaText}>
+            {updateInfo.releaseName
+              ? `Release: ${updateInfo.releaseName}`
+              : `New commits available`}
+          </Text>
+        </>
+      )}
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
-      {status === "Update Ready" && (
-        <TouchableOpacity onPress={onReload} style={styles.reloadButton}>
-          <Text style={styles.reloadButtonText}>Restart Now</Text>
+      {status === "Update Available" && (
+        <TouchableOpacity onPress={onDownload} style={styles.reloadButton}>
+          <Text style={styles.reloadButtonText}>Download Update</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -76,6 +86,11 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontWeight: "bold",
     marginBottom: 4,
+  },
+  commitText: {
+    color: Colors.primary,
+    fontSize: 12,
+    marginTop: 2,
   },
   metaText: {
     color: Colors.textSecondary,

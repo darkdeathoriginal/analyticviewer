@@ -36,12 +36,20 @@ class MainApplication : Application(), ReactApplication {
           override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
 
           override fun getJSBundleFile(): String? {
-            val updateBundle = File(applicationContext.filesDir, "ota/index.android.bundle")
-            return if (updateBundle.exists()) {
-              updateBundle.absolutePath
-            } else {
-              null // Falls back to the default asset bundle
-            }
+            val otaBundle = File(applicationContext.filesDir, "ota/index.android.bundle")
+            if (!otaBundle.exists()) return null
+
+            // If the APK was updated after the OTA bundle was downloaded, the OTA is stale
+            try {
+              val appInfo = applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0)
+              if (appInfo.lastUpdateTime > otaBundle.lastModified()) {
+                otaBundle.delete()
+                File(applicationContext.filesDir, "ota/meta.json").delete()
+                return null
+              }
+            } catch (_: Exception) {}
+
+            return otaBundle.absolutePath
           }
       }
   )

@@ -1,7 +1,7 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Globe, LayoutDashboard, Plus, Trash2 } from "lucide-react-native";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   FlatList,
@@ -15,9 +15,11 @@ import {
   UIManager,
   View,
 } from "react-native";
+import { WebView } from "react-native-webview";
+import { WebViewMessageEvent } from "react-native-webview/lib/WebViewTypes";
 import AddAppModal from "../components/AddAppModal";
 import { Colors, Layout } from "../constants/theme";
-import { resolveFavicon } from "../utils/favicon";
+import { parseFaviconFromHtml } from "../utils/favicon";
 import {
   deleteApp,
   getApps,
@@ -116,12 +118,92 @@ const AppItem = React.memo(
   },
 );
 
+interface FaviconJob {
+  url: string;
+  appId: string;
+}
+
+/** Injected JS – same approach the viewer uses to extract page HTML. */
+const FAVICON_INJECTED_JS = `
+  (function() {
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: 'favicon',
+      html: document.documentElement.outerHTML
+    }));
+    true;
+  })();
+`;
+
 export default function HomeScreen() {
   const [apps, setApps] = useState<SavedApp[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
 
+  // --- WebView-based favicon resolution queue ---
+  const [faviconQueue, setFaviconQueue] = useState<FaviconJob[]>([]);
+  const [currentFaviconJob, setCurrentFaviconJob] = useState<FaviconJob | null>(
+    null,
+  );
+  const faviconTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Pick next job from queue when idle
+  useEffect(() => {
+    if (!currentFaviconJob && faviconQueue.length > 0) {
+      const [next, ...rest] = faviconQueue;
+      setCurrentFaviconJob(next);
+      setFaviconQueue(rest);
+    }
+  }, [faviconQueue, currentFaviconJob]);
+
+  // Safety timeout so a stalled WebView doesn't block the queue
+  useEffect(() => {
+    if (currentFaviconJob) {
+      faviconTimeoutRef.current = setTimeout(() => {
+        setCurrentFaviconJob(null);
+      }, 10_000);
+      return () => {
+        if (faviconTimeoutRef.current) clearTimeout(faviconTimeoutRef.current);
+      };
+    }
+  }, [currentFaviconJob]);
+
+  const onFaviconMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      if (!currentFaviconJob) return;
+      try {
+        const data = JSON.parse(event.nativeEvent.data);
+        if (data.type === "favicon" && data.html) {
+          const favicon = parseFaviconFromHtml(
+            data.html,
+            currentFaviconJob.url,
+          );
+          if (favicon) {
+            updateApp(currentFaviconJob.appId, { favicon }).catch(
+              console.error,
+            );
+            setApps((prev) =>
+              prev.map((a) =>
+                a.id === currentFaviconJob.appId ? { ...a, favicon } : a,
+              ),
+            );
+          }
+        }
+      } catch {
+        // Ignore parsing errors
+      }
+      if (faviconTimeoutRef.current) clearTimeout(faviconTimeoutRef.current);
+      setCurrentFaviconJob(null);
+    },
+    [currentFaviconJob],
+  );
+
+  /** Queue a single app for WebView-based favicon resolution. */
+  const queueFavicon = useCallback((appId: string, url: string) => {
+    setFaviconQueue((prev) => [...prev, { appId, url }]);
+  }, []);
+
+  // --- App loading ---
   const loadApps = useCallback(async () => {
     try {
       const storedApps = await getApps();
@@ -132,28 +214,15 @@ export default function HomeScreen() {
     }
   }, []);
 
-  /** Re-fetch favicons for all apps in the background, persisting any updates. */
+  /** Re-fetch favicons for all apps via hidden WebView (fire-and-forget). */
   const refreshFaviconsInBackground = useCallback(async () => {
     try {
       const storedApps = await getApps();
-      await Promise.all(
-        storedApps.map(async (app) => {
-          try {
-            const newFavicon = await resolveFavicon(app.url);
-            if (newFavicon && newFavicon !== app.favicon) {
-              await updateApp(app.id, { favicon: newFavicon });
-              // Reflect the update in local state immediately
-              setApps((prev) =>
-                prev.map((a) =>
-                  a.id === app.id ? { ...a, favicon: newFavicon } : a,
-                ),
-              );
-            }
-          } catch {
-            // Silently ignore per-app errors
-          }
-        }),
-      );
+      const jobs: FaviconJob[] = storedApps.map((app) => ({
+        appId: app.id,
+        url: app.url,
+      }));
+      setFaviconQueue((prev) => [...prev, ...jobs]);
     } catch (error) {
       console.error("Background favicon refresh failed", error);
     }
@@ -175,9 +244,10 @@ export default function HomeScreen() {
 
   const handleAddApp = async (name: string, url: string) => {
     try {
-      const favicon = await resolveFavicon(url);
-      await saveApp({ name, url, favicon });
+      const newApp = await saveApp({ name, url, favicon: null });
       await loadApps();
+      // Queue WebView-based favicon resolution for the new app
+      queueFavicon(newApp.id, url);
     } catch (error) {
       console.error(error);
     }
@@ -256,6 +326,19 @@ export default function HomeScreen() {
         onClose={() => setModalVisible(false)}
         onSave={handleAddApp}
       />
+
+      {/* Hidden WebView for favicon extraction (same technique as viewer) */}
+      {currentFaviconJob && (
+        <WebView
+          source={{ uri: currentFaviconJob.url }}
+          style={styles.hiddenWebView}
+          injectedJavaScript={FAVICON_INJECTED_JS}
+          onMessage={onFaviconMessage}
+          onError={() => setCurrentFaviconJob(null)}
+          onHttpError={() => setCurrentFaviconJob(null)}
+          javaScriptEnabled
+        />
+      )}
     </View>
   );
 }
@@ -264,6 +347,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  hiddenWebView: {
+    width: 0,
+    height: 0,
+    opacity: 0,
+    position: "absolute",
   },
   listContent: {
     padding: Layout.spacing.m,

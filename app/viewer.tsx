@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  Image,
   Linking,
   Modal,
   Platform,
@@ -17,8 +18,10 @@ import {
   View,
 } from "react-native";
 import { WebView } from "react-native-webview";
+import { WebViewMessageEvent } from "react-native-webview/lib/WebViewTypes";
 import { Colors } from "../constants/theme";
-import { getApps, SavedApp } from "../utils/storage";
+import { parseFaviconFromHtml } from "../utils/favicon";
+import { getApps, SavedApp, updateApp } from "../utils/storage";
 
 const { width } = Dimensions.get("window");
 
@@ -35,9 +38,6 @@ export default function ViewerScreen() {
     id: initialId,
   } = useLocalSearchParams<{ url: string; title: string; id: string }>();
 
-  // Track all visited apps (tabs)
-  // If we don't have an ID (legacy), use URL as ID or gen one, but we updated index to pass ID.
-  // Fallback for direct URL opening or deep links could be needed.
   const startId = initialId || "temp-" + Date.now();
 
   const [activeTabs, setActiveTabs] = useState<TabState[]>([
@@ -49,25 +49,44 @@ export default function ViewerScreen() {
   ]);
 
   const [currentTabId, setCurrentTabId] = useState(startId);
-
-  // Per-tab loading state
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({
     [startId]: true,
   });
   const [refreshing, setRefreshing] = useState(false);
-
-  // Switcher State
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [savedApps, setSavedApps] = useState<SavedApp[]>([]);
+  const [favicons, setFavicons] = useState<Record<string, string>>({});
 
-  // Refs for all webviews
   const webViewRefs = useRef<Record<string, WebView | null>>({});
   const router = useRouter();
 
   useEffect(() => {
-    // Load apps for switcher
     getApps().then(setSavedApps).catch(console.error);
   }, []);
+
+  // Handle messages from WebView (HTML content for favicon parsing)
+  const onMessage = useCallback(
+    (event: WebViewMessageEvent, tabId: string, tabUrl: string) => {
+      try {
+        const data = JSON.parse(event.nativeEvent.data);
+
+        if (data.type === "favicon" && data.html) {
+          const favicon = parseFaviconFromHtml(data.html, tabUrl);
+          if (favicon) {
+            setFavicons((prev) => ({ ...prev, [tabId]: favicon }));
+
+            // Persist to storage if this is a saved app
+            if (!tabId.startsWith("temp-")) {
+              updateApp(tabId, { favicon }).catch(console.error);
+            }
+          }
+        }
+      } catch {
+        // Ignore parsing errors
+      }
+    },
+    [],
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -76,13 +95,10 @@ export default function ViewerScreen() {
 
   const switchApp = (app: SavedApp) => {
     setSwitcherVisible(false);
-
-    // Check if tab exists
     const existingTab = activeTabs.find((t) => t.id === app.id);
     if (existingTab) {
       setCurrentTabId(app.id);
     } else {
-      // Add new tab
       setActiveTabs((prev) => [
         ...prev,
         { id: app.id, url: app.url, name: app.name },
@@ -96,14 +112,22 @@ export default function ViewerScreen() {
     setLoadingStates((prev) => ({ ...prev, [id]: isLoading }));
   };
 
+  // JavaScript to inject into WebView to extract HTML
+  const injectedJavaScript = `
+    (function() {
+      // Send HTML back to React Native for favicon parsing
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'favicon',
+        html: document.documentElement.outerHTML
+      }));
+      true;
+    })();
+  `;
+
   const renderWebView = (tab: TabState, isActive: boolean) => (
     <View
       key={tab.id}
-      style={[
-        styles.webViewContainer,
-        // Use display none to hide but keep alive
-        !isActive && { display: "none" },
-      ]}
+      style={[styles.webViewContainer, !isActive && { display: "none" }]}
     >
       <WebView
         ref={(ref) => {
@@ -111,15 +135,15 @@ export default function ViewerScreen() {
         }}
         source={{ uri: tab.url, headers: { "Cache-Control": "no-cache" } }}
         style={styles.webView}
-        onLoadStart={() => {}}
+        injectedJavaScript={injectedJavaScript}
+        onMessage={(event) => onMessage(event, tab.id, tab.url)}
         onLoadEnd={() => {
           updateLoadingState(tab.id, false);
           if (isActive) setRefreshing(false);
         }}
-        // iOS: built-in pull-to-refresh
+        originWhitelist={["*"]}
+        mixedContentMode="always"
         pullToRefreshEnabled={Platform.OS === "ios"}
-        // Android: prevent overscroll from bubbling up to any parent view,
-        // which is the root cause of accidental pull-to-refresh on scroll up
         overScrollMode={Platform.OS === "android" ? "never" : undefined}
         onFileDownload={({ nativeEvent }) => {
           if (nativeEvent.downloadUrl) {
@@ -136,24 +160,41 @@ export default function ViewerScreen() {
     </View>
   );
 
+  // Render favicon in switcher
+  const renderAppIcon = (item: SavedApp) => {
+    const favicon = favicons[item.id] || item.favicon;
+
+    if (favicon?.startsWith("emoji:")) {
+      return <Text style={styles.faviconEmoji}>{favicon.slice(6)}</Text>;
+    }
+
+    if (favicon) {
+      return (
+        <Image
+          source={{ uri: favicon }}
+          style={styles.faviconImage}
+          defaultSource={undefined}
+        />
+      );
+    }
+
+    return <Globe color={Colors.text} size={24} />;
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" hidden={true} />
 
-      {/* Render all tabs; inactive ones are hidden via display:none */}
       {activeTabs.map((tab) => renderWebView(tab, tab.id === currentTabId))}
 
-      {/* Loading overlay for current tab */}
       {loadingStates[currentTabId] && !refreshing && (
         <View style={styles.loadingOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color={Colors.primary} />
         </View>
       )}
 
-      {/* Floating Action Buttons */}
       {!switcherVisible && (
         <View style={styles.fabContainer} pointerEvents="box-none">
-          {/* Refresh button — replaces pull-to-refresh on Android */}
           <TouchableOpacity
             style={[styles.fab, styles.fabRefresh]}
             onPress={onRefresh}
@@ -172,7 +213,6 @@ export default function ViewerScreen() {
         </View>
       )}
 
-      {/* Switcher Modal */}
       <Modal
         animationType="fade"
         transparent={true}
@@ -182,7 +222,6 @@ export default function ViewerScreen() {
         <TouchableWithoutFeedback onPress={() => setSwitcherVisible(false)}>
           <View style={styles.modalOverlay}>
             {Platform.OS === "ios" && (
-              // @ts-ignore
               <BlurView
                 intensity={30}
                 tint="dark"
@@ -219,9 +258,7 @@ export default function ViewerScreen() {
                     ]}
                     onPress={() => switchApp(item)}
                   >
-                    <View style={styles.appIcon}>
-                      <Globe color={Colors.text} size={24} />
-                    </View>
+                    <View style={styles.appIcon}>{renderAppIcon(item)}</View>
                     <Text style={styles.appName} numberOfLines={1}>
                       {item.name}
                     </Text>
@@ -251,9 +288,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
-  },
-  scrollViewContent: {
-    flex: 1,
   },
   webViewContainer: {
     flex: 1,
@@ -356,6 +390,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: "#444",
+    overflow: "hidden",
+  },
+  faviconEmoji: {
+    fontSize: 32,
+    textAlign: "center",
+    lineHeight: 60,
+  },
+  faviconImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
   },
   activeDot: {
     position: "absolute",

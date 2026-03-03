@@ -1,14 +1,14 @@
 export const Colors = {
-  background: '#0a0a0a',
-  surface: '#1a1a1a',
-  surfaceLight: '#2a2a2a',
-  primary: '#3b82f6', // Electric blue
-  text: '#ffffff',
-  textSecondary: '#a1a1aa',
-  border: '#27272a',
-  success: '#22c55e',
-  danger: '#ef4444',
-  overlay: 'rgba(0,0,0,0.7)',
+  background: "#0a0a0a",
+  surface: "#1a1a1a",
+  surfaceLight: "#2a2a2a",
+  primary: "#3b82f6", // Electric blue
+  text: "#ffffff",
+  textSecondary: "#a1a1aa",
+  border: "#27272a",
+  success: "#22c55e",
+  danger: "#ef4444",
+  overlay: "rgba(0,0,0,0.7)",
 };
 
 export const Layout = {

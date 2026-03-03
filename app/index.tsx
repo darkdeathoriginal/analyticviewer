@@ -15,7 +15,6 @@ import {
   UIManager,
   View,
 } from "react-native";
-import { WebView } from "react-native-webview";
 import AddAppModal from "../components/AddAppModal";
 import { Colors, Layout } from "../constants/theme";
 import { resolveFavicon } from "../utils/favicon";
@@ -76,36 +75,11 @@ const AppItem = React.memo(
               <View style={styles.cardIcon}>
                 {imageError ? (
                   <Globe color={Colors.primary} size={24} />
-                ) : item.favicon?.startsWith("data:image/svg+xml") ? (
-                  (() => {
-                    // Decode the SVG from the data URI (handles both encoded and raw)
-                    const raw = item.favicon!;
-                    const commaIdx = raw.indexOf(",");
-                    let svgContent = "";
-                    if (commaIdx !== -1) {
-                      const slice = raw.slice(commaIdx + 1);
-                      try {
-                        svgContent = decodeURIComponent(slice);
-                      } catch {
-                        svgContent = slice; // already raw / not encoded
-                      }
-                    }
-                    const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>*{margin:0;padding:0;background:transparent}html,body{width:100%;height:100%;display:flex;align-items:center;justify-content:center}svg{width:100%;height:100%}</style></head><body>${svgContent}</body></html>`;
-                    return (
-                      <WebView
-                        source={{ html }}
-                        style={[
-                          styles.favicon,
-                          { backgroundColor: "transparent" },
-                        ]}
-                        scrollEnabled={false}
-                        pointerEvents="none"
-                        androidLayerType="hardware"
-                        backgroundColor="transparent"
-                        onError={() => setImageError(true)}
-                      />
-                    );
-                  })()
+                ) : item.favicon?.startsWith("emoji:") ? (
+                  // Emoji extracted from SVG data URI — render natively
+                  <Text style={styles.faviconEmoji}>
+                    {item.favicon.slice(6)}
+                  </Text>
                 ) : (
                   <Image
                     source={{
@@ -337,6 +311,10 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
+  },
+  faviconEmoji: {
+    fontSize: 28,
+    textAlign: "center",
   },
   textContainer: {
     flex: 1,

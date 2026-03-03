@@ -9,6 +9,46 @@ function decodeHtmlEntities(str: string): string {
     .replace(/&apos;/gi, "'");
 }
 
+/**
+ * Try to extract an emoji character from an SVG data URI favicon.
+ * Many sites use a pattern like:
+ *   data:image/svg+xml,<svg ...><text ...>🐳</text></svg>
+ * Returns `emoji:{char}` if found, null otherwise.
+ */
+function extractEmojiFromSvgDataUri(dataUri: string): string | null {
+  try {
+    const commaIdx = dataUri.indexOf(",");
+    if (commaIdx === -1) return null;
+    const raw = dataUri.slice(commaIdx + 1);
+
+    // Decode percent-encoding if present, ignore errors
+    let svgText = raw;
+    try {
+      svgText = decodeURIComponent(raw);
+    } catch {
+      /* use raw */
+    }
+
+    // Also decode HTML entities (href attributes often encode < and >)
+    svgText = decodeHtmlEntities(svgText);
+
+    // Match content inside a <text> element
+    const textMatch = svgText.match(/<text[^>]*>([^<]+)<\/text>/i);
+    if (!textMatch) return null;
+
+    const content = textMatch[1].trim();
+
+    // Check that content is emoji / non-ASCII (skip pure ASCII text)
+    // A simple heuristic: at least one character with codepoint > 127
+    const hasEmoji = [...content].some((c) => c.codePointAt(0)! > 127);
+    if (!hasEmoji || content.length > 4) return null; // sanity-limit length
+
+    return `emoji:${content}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveFavicon(url: string): Promise<string | null> {
   try {
     const controller = new AbortController();
@@ -30,23 +70,23 @@ export async function resolveFavicon(url: string): Promise<string | null> {
     const matches = html.match(iconRegex);
     if (!matches) return null;
 
-    // Try each match in order, prefer non-SVG-data URIs first so we get a
-    // real image URL when one exists, but fall back to data URIs.
+    // Prefer http/https URLs; fall back to data URIs (incl. emoji extraction)
     let dataUriFallback: string | null = null;
 
     for (const tag of matches) {
-      // Pull the raw href value (may contain HTML entities)
       const hrefMatch = tag.match(
         /href=["']?([^"'<>\s]+(?:\s+[^"'<>\s]+)*)["']?/i,
       );
       if (!hrefMatch) continue;
 
-      // Decode HTML entities (e.g. &lt; → <, &gt; → >)
       let faviconUrl = decodeHtmlEntities(hrefMatch[1].trim());
 
       if (faviconUrl.startsWith("data:")) {
-        // Keep as fallback; don't resolve against origin
-        if (!dataUriFallback) dataUriFallback = faviconUrl;
+        if (!dataUriFallback) {
+          // Try to extract an emoji first (lightweight, renders natively)
+          const emoji = extractEmojiFromSvgDataUri(faviconUrl);
+          dataUriFallback = emoji ?? faviconUrl;
+        }
         continue;
       }
 
@@ -59,7 +99,6 @@ export async function resolveFavicon(url: string): Promise<string | null> {
       return faviconUrl;
     }
 
-    // Return the data URI if that's all we found
     return dataUriFallback;
   } catch (err) {
     return null;

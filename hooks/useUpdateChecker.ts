@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Updates from "expo-updates";
 import { useCallback, useEffect, useState } from "react";
 import { BUILD_INFO } from "../constants/buildInfo";

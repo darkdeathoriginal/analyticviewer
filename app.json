@@ -35,6 +35,7 @@
     },
     "plugins": [
       "expo-router",
+      "react-native-github-ota",
       [
         "expo-build-properties",
         {

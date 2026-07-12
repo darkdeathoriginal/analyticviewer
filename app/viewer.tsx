@@ -13,6 +13,7 @@ import {
   Platform,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
@@ -56,6 +57,15 @@ export default function ViewerScreen() {
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [savedApps, setSavedApps] = useState<SavedApp[]>([]);
   const [favicons, setFavicons] = useState<Record<string, string>>({});
+  
+  const [authRequest, setAuthRequest] = useState<{
+    host: string;
+    realm: string;
+    proceed: (username?: string, password?: string) => void;
+    cancel: () => void;
+  } | null>(null);
+  const [authUsername, setAuthUsername] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
 
   const webViewRefs = useRef<Record<string, WebView | null>>({});
   const router = useRouter();
@@ -137,6 +147,12 @@ export default function ViewerScreen() {
         style={styles.webView}
         injectedJavaScript={injectedJavaScript}
         onMessage={(event) => onMessage(event, tab.id, tab.url)}
+        onHttpAuthRequest={(event) => {
+          const { host, realm, cancel, proceed } = event.nativeEvent;
+          setAuthRequest({ host, realm, cancel, proceed });
+          setAuthUsername("");
+          setAuthPassword("");
+        }}
         onLoadEnd={() => {
           updateLoadingState(tab.id, false);
           if (isActive) setRefreshing(false);
@@ -279,6 +295,84 @@ export default function ViewerScreen() {
             </View>
           </View>
         </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!authRequest}
+        onRequestClose={() => {
+          authRequest?.cancel();
+          setAuthRequest(null);
+        }}
+      >
+        <View style={[styles.modalOverlay, { justifyContent: "center" }]}>
+          {Platform.OS === "ios" && (
+            <BlurView
+              intensity={30}
+              tint="dark"
+              style={StyleSheet.absoluteFill}
+            />
+          )}
+          {Platform.OS === "android" && (
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: "rgba(0,0,0,0.8)" },
+              ]}
+            />
+          )}
+          <View style={styles.authModalContent}>
+            <Text style={styles.modalTitle}>Authentication Required</Text>
+            <Text style={styles.authPromptText}>
+              {authRequest?.host} is requesting your username and password.
+              {authRequest?.realm ? `\nRealm: ${authRequest.realm}` : ""}
+            </Text>
+            
+            <TextInput
+              style={styles.authInput}
+              placeholder="Username"
+              placeholderTextColor={Colors.textSecondary}
+              value={authUsername}
+              onChangeText={setAuthUsername}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            
+            <TextInput
+              style={styles.authInput}
+              placeholder="Password"
+              placeholderTextColor={Colors.textSecondary}
+              value={authPassword}
+              onChangeText={setAuthPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            
+            <View style={styles.authButtonRow}>
+              <TouchableOpacity
+                style={[styles.authButton, styles.authButtonCancel]}
+                onPress={() => {
+                  authRequest?.cancel();
+                  setAuthRequest(null);
+                }}
+              >
+                <Text style={styles.authButtonCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.authButton, styles.authButtonSubmit]}
+                onPress={() => {
+                  authRequest?.proceed(authUsername, authPassword);
+                  setAuthRequest(null);
+                }}
+              >
+                <Text style={styles.authButtonSubmitText}>Log In</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -427,6 +521,64 @@ const styles = StyleSheet.create({
   },
   homeButtonText: {
     color: Colors.danger,
+    fontWeight: "bold",
+  },
+  authModalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: "85%",
+    maxWidth: 400,
+    alignSelf: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 20,
+  },
+  authPromptText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    marginBottom: 20,
+    marginTop: 8,
+  },
+  authInput: {
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 8,
+    padding: 12,
+    color: Colors.text,
+    marginBottom: 16,
+    fontSize: 16,
+  },
+  authButtonRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 12,
+    marginTop: 8,
+  },
+  authButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    minWidth: 90,
+    alignItems: "center",
+  },
+  authButtonCancel: {
+    backgroundColor: "transparent",
+  },
+  authButtonSubmit: {
+    backgroundColor: Colors.primary,
+  },
+  authButtonCancelText: {
+    color: Colors.textSecondary,
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  authButtonSubmitText: {
+    color: "#fff",
+    fontSize: 16,
     fontWeight: "bold",
   },
 });

@@ -334,6 +334,10 @@ export default function HomeScreen() {
           style={styles.hiddenWebView}
           injectedJavaScript={FAVICON_INJECTED_JS}
           onMessage={onFaviconMessage}
+          onHttpAuthRequest={(event) => {
+            event.nativeEvent.cancel();
+            setCurrentFaviconJob(null);
+          }}
           onError={() => setCurrentFaviconJob(null)}
           onHttpError={() => setCurrentFaviconJob(null)}
           javaScriptEnabled
